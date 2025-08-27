@@ -1,0 +1,738 @@
+<!DOCTYPE html> 
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Market Direction Analyzer — Binance</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#111a2b; --text:#e8eefc; --muted:#92a3c2; --accent:#4cc9f0; --good:#00d48f; --bad:#ff5470; --warn:#ffbf69;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif;background:linear-gradient(180deg,#0a1020,#0b1220 30%);color:var(--text)}
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:14px 18px;background:linear-gradient(90deg,#0d1730,#0b1220);position:sticky;top:0;z-index:5;border-bottom:1px solid #1c2942}
+    header .title{display:flex;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.3px}
+    .hint{font-size:12px;color:var(--muted)}
+    .container{display:grid;grid-template-columns:300px 1fr;gap:12px;padding:12px}
+    .card{background:var(--panel);border:1px solid #1b2742;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .controls{padding:12px}
+    .controls .row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+    label{font-size:12px;color:var(--muted)}
+    input,select,button{width:100%;padding:10px 12px;border-radius:12px;border:1px solid #203050;background:#0e1730;color:var(--text);outline:none}
+    button{cursor:pointer;background:linear-gradient(180deg,#1b2b52,#152547);border-color:#2b3c63;font-weight:700}
+    button.primary{background:linear-gradient(180deg,#2c5aa0,#1e3e75)}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .search{display:flex;gap:8px;margin-bottom:10px}
+    .symbol-list{height:54vh;overflow:auto;border:1px solid #1b2742;border-radius:12px}
+    .symbol-item{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px dashed #22345a;cursor:pointer}
+    .symbol-item:hover{background:#0f1a33}
+    .tag{font-size:11px;color:#a9bbdc;background:#0e1630;border:1px solid #253764;border-radius:999px;padding:2px 8px}
+
+    .right{display:grid;grid-template-rows:auto auto 1fr auto;gap:12px}
+    .board{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:12px}
+    .metric{background:#0f1830;border:1px solid #1d2b4e;border-radius:14px;padding:10px}
+    .metric h3{margin:0 0 4px;font-size:12px;color:var(--muted)}
+    .metric .v{font-size:18px;font-weight:800}
+    .metric.good .v{color:var(--good)}
+    .metric.bad .v{color:var(--bad)}
+    .metric.warn .v{color:var(--warn)}
+
+    .charts{display:grid;grid-template-rows:420px 170px 170px;gap:10px;padding:12px}
+    #priceChart,#rsiChart,#macdChart{height:100%;}
+
+    .analysis{padding:12px}
+    .analysis pre{white-space:pre-wrap;word-wrap:break-word;background:#0e1730;border:1px solid #1b2a4e;border-radius:12px;padding:12px;line-height:1.65}
+
+    .footer{padding:10px;text-align:center;color:var(--muted);font-size:12px}
+    .badge{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid #2b3c63}
+
+    @media(max-width:1100px){.container{grid-template-columns:1fr}.symbol-list{height:220px}}
+  </style>
+  <!-- Lightweight Charts -->
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.min.js"></script>
+  <!-- technicalindicators UMD (RSI, MACD, BB, ADX, Ichimoku, StochRSI, SMA/EMA, etc.) -->
+  <script src="https://cdn.jsdelivr.net/npm/technicalindicators@3.0.1/dist/browser.js"></script>
+</head>
+<body>
+  <header>
+    <div class="title">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 3h18v18H3z" stroke="#4cc9f0"/><path d="M4 15l5-5 3 3 4-4 4 4" stroke="#00d48f"/></svg>
+      <div>
+        <h1>محلل اتجاه السوق الذكي — Binance</h1>
+        <div class="hint">يكتشف الاتجاه (صاعد/هابط) ويحسب درجة الثقة باستخدام حزمة مؤشرات: ZigZag, RSI, MACD, ADX, Bollinger, StochRSI, Ichimoku, SMA/EMA/MA.</div>
+      </div>
+    </div>
+    <!-- استبدال شارة التحذير باسم المطوّر -->
+    <div class="badge">المطوّر: عبدالجبار القدسي</div>
+  </header>
+
+  <div class="container">
+    <!-- Left sidebar: symbols & settings -->
+    <div class="card">
+      <div class="controls">
+        <div class="search">
+          <input id="search" placeholder="ابحث عن زوج (مثال: BTCUSDT)"/>
+          <button id="refreshSymbols">تحديث الأزواج</button>
+        </div>
+        <div class="row">
+          <div>
+            <label>الإطار الزمني</label>
+            <select id="interval">
+              <option value="1m">1m</option>
+              <option value="3m">3m</option>
+              <option value="5m">5m</option>
+              <option value="15m" selected>15m</option>
+              <option value="30m">30m</option>
+              <option value="1h">1h</option>
+              <option value="2h">2h</option>
+              <option value="4h">4h</option>
+              <option value="6h">6h</option>
+              <option value="8h">8h</option>
+              <option value="12h">12h</option>
+              <option value="1d">1d</option>
+              <option value="3d">3d</option>
+              <option value="1w">1w</option>
+              <option value="1M">1M</option>
+            </select>
+          </div>
+          <div>
+            <label>عدد الشموع</label>
+            <select id="limit">
+              <option>200</option>
+              <option selected>500</option>
+              <option>750</option>
+              <option>1000</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>حساسية ZigZag ٪</label>
+            <input id="zigzagPct" type="number" min="0.1" max="20" step="0.1" value="3"/>
+          </div>
+          <div>
+            <label>طول RSI</label>
+            <input id="rsiLen" type="number" min="2" max="50" step="1" value="14"/>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>MA السريع / البطيء</label>
+            <input id="maFast" type="number" value="50"/>
+          </div>
+          <div>
+            <label>EMA / SMA</label>
+            <select id="maType">
+              <option value="EMA" selected>EMA</option>
+              <option value="SMA">SMA</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>تأكيد بعد شمعتين</label>
+            <select id="confirmBars">
+              <option value="0">إيقاف</option>
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+            </select>
+          </div>
+          <div>
+            <label>تنبيهات صوتية</label>
+            <select id="sound">
+              <option value="off" selected>إيقاف</option>
+              <option value="on">تشغيل</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <button id="runTests">تشغيل اختبار المؤشرات</button>
+          </div>
+          <div>
+            <div class="tag" id="libStatus">Lib: —</div>
+          </div>
+        </div>
+        <div id="testResults" class="hint" style="margin-top:6px;white-space:pre-wrap"></div>
+        <button class="primary" id="analyzeBtn">تشغيل التحليل</button>
+      </div>
+      <div class="symbol-list" id="symbols"></div>
+    </div>
+
+    <!-- Right side: dashboard & charts -->
+    <div class="right">
+      <div class="board">
+        <div class="metric" id="trendBox"><h3>الاتجاه</h3><div class="v">—</div><div class="hint" id="trendWhy">—</div></div>
+        <div class="metric" id="confidenceBox"><h3>درجة الثقة</h3><div class="v">—</div><div class="hint">مبنية على إجماع المؤشرات</div></div>
+        <div class="metric" id="volatilityBox"><h3>التذبذب (Bollinger %B)</h3><div class="v">—</div><div class="hint">قرب السعر من حدود البولينجر</div></div>
+        <div class="metric" id="adxBox"><h3>قوة الاتجاه (ADX)</h3><div class="v">—</div><div class="hint">>25 اتجاه قوي</div></div>
+        <div class="metric" id="diagBox"><h3>تشخيص</h3><div class="v" id="diagText">—</div><div class="hint">حالة المكتبة/الاختبارات</div></div>
+      </div>
+
+      <div class="card charts">
+        <div id="priceChart"></div>
+        <div id="rsiChart"></div>
+        <div id="macdChart"></div>
+      </div>
+
+      <div class="card analysis">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="tag" id="pickedSymbol">—</div>
+          <div class="tag" id="pickedInterval">—</div>
+          <div class="tag" id="srInfo">الدعم/المقاومة الأقرب: —</div>
+        </div>
+        <pre id="explain">ابدأ باختيار زوج وإطار زمني، ثم اضغط تشغيل التحليل.</pre>
+      </div>
+
+      <div class="footer">© 2025 — أداة تعليمية. ليست نصيحة استثمارية. تعمل عبر <span class="badge">Binance Public API</span>. <span class="badge" style="margin-inline-start:8px">المطوّر: عبدالجبار القدسي</span></div>
+    </div>
+  </div>
+
+  <audio id="ding" src="https://cdn.jsdelivr.net/gh/sfxr/sfxr/meow.wav"></audio>
+
+<script>
+// ---------- Robust Indicator Loader & Fallbacks ----------
+(function(){
+  // Try to discover the global from the UMD build. Some builds expose different names.
+  const g = window;
+  let TI = g.technicalindicators || g.indicators || g.ti || g.TechnicalIndicators;
+
+  // Minimal math helpers
+  const mean = (arr)=> arr.reduce((a,b)=>a+b,0)/arr.length;
+  const stdev = (arr)=>{
+    const m = mean(arr); const v = mean(arr.map(x=> (x-m)*(x-m)));
+    return Math.sqrt(v);
+  }
+
+  // If not found, create a light polyfill for the indicators we use
+  if(!TI){
+    TI = {};
+
+    TI.SMA = { calculate: ({values, period}) => {
+      const out=[]; for(let i=0;i<=values.length-period;i++){ out.push(mean(values.slice(i,i+period))); } return out; }
+    };
+
+    TI.EMA = { calculate: ({values, period}) => {
+      const out=[]; if(values.length<period) return out; const k = 2/(period+1);
+      let prev = mean(values.slice(0, period)); out.push(prev);
+      for(let i=period;i<values.length;i++){ prev = values[i]*k + prev*(1-k); out.push(prev); }
+      return out;
+    }};
+
+    TI.RSI = { calculate: ({values, period}) => {
+      if(values.length<period+1) return []; let gains=0, losses=0;
+      for(let i=1;i<=period;i++){ const ch=values[i]-values[i-1]; gains += Math.max(0,ch); losses += Math.max(0,-ch); }
+      let avgG=gains/period, avgL=losses/period; const out=[];
+      for(let i=period+1;i<values.length;i++){
+        const ch=values[i]-values[i-1]; const g=Math.max(0,ch), l=Math.max(0,-ch);
+        avgG = (avgG*(period-1)+g)/period; avgL = (avgL*(period-1)+l)/period;
+        const rs = avgL===0? 100 : avgG/avgL; const rsi = avgL===0? 100 : 100 - (100/(1+rs));
+        out.push(Math.max(0, Math.min(100, rsi)));
+      }
+      return out;
+    }};
+
+    TI.MACD = { calculate: ({values, fastPeriod=12, slowPeriod=26, signalPeriod=9}) => {
+      const emaFast = TI.EMA.calculate({values, period: fastPeriod});
+      const emaSlow = TI.EMA.calculate({values, period: slowPeriod});
+      // align lengths
+      const offset = emaSlow.length - emaFast.length; // slow >= fast
+      const macdLine = [];
+      for(let i=Math.max(0, -offset); i<emaFast.length && i+offset<emaSlow.length; i++){
+        macdLine.push(emaFast[i] - emaSlow[i+offset]);
+      }
+      const signal = TI.EMA.calculate({values: macdLine, period: signalPeriod});
+      const hist = [];
+      const start = macdLine.length - signal.length;
+      for(let i=0;i<signal.length;i++){ hist.push(macdLine[i+start]-signal[i]); }
+      // Output objects per technicalindicators format
+      const out=[]; for(let i=0;i<signal.length;i++){ out.push({MACD: macdLine[i+start], signal: signal[i], histogram: hist[i]}); }
+      return out;
+    }};
+
+    TI.BollingerBands = { calculate: ({values, period=20, stdDev=2}) => {
+      const out=[]; for(let i=0;i<=values.length-period;i++){
+        const slice = values.slice(i,i+period); const m = mean(slice); const s = stdev(slice);
+        out.push({upper:m+stdDev*s, middle:m, lower:m-stdDev*s});
+      } return out;
+    }};
+
+    TI.ADX = { calculate: ({high, low, close, period=14}) => {
+      const len = close.length; if(len<period+1) return [];
+      const tr=[], plusDM=[], minusDM=[];
+      for(let i=1;i<len;i++){
+        const up = high[i]-high[i-1];
+        const down = low[i-1]-low[i];
+        const _tr = Math.max(high[i]-low[i], Math.abs(high[i]-close[i-1]), Math.abs(low[i]-close[i-1]));
+        tr.push(_tr); plusDM.push(up>down && up>0 ? up:0); minusDM.push(down>up && down>0? down:0);
+      }
+      // Wilder smoothing
+      const smooth = (arr, p)=>{
+        let s = arr.slice(0,p).reduce((a,b)=>a+b,0);
+        const out=[s]; for(let i=p;i<arr.length;i++){ s = out[out.length-1] - (out[out.length-1]/p) + arr[i]; out.push(s); } return out;
+      }
+      const ATR = smooth(tr, period);
+      const pDM = smooth(plusDM, period);
+      const mDM = smooth(minusDM, period);
+      const pDI = pDM.map((v,i)=> 100*(v/ATR[i]));
+      const mDI = mDM.map((v,i)=> 100*(v/ATR[i]));
+      const DX = pDI.map((v,i)=> 100 * (Math.abs(v - mDI[i]) / (v + mDI[i] || 1)));
+      // ADX as Wilder's smoothing of DX
+      let adx=[]; if(DX.length>=period){
+        let first = DX.slice(0,period).reduce((a,b)=>a+b,0)/period; adx=[first];
+        for(let i=period;i<DX.length;i++){ adx.push(((adx[adx.length-1]*(period-1))+DX[i])/period); }
+      }
+      // align lengths with original series
+      const res=[]; const start = len - adx.length - 1; // -1 due to first diff step
+      for(let i=0;i<adx.length;i++){ res.push({adx: adx[i], pdi: pDI[i+period-1], mdi: mDI[i+period-1]}); }
+      return res;
+    }};
+
+    TI.IchimokuCloud = { calculate: ({high, low, conversionPeriod=9, basePeriod=26, spanPeriod=52, displacement=26}) => {
+      const conv = [], base=[], spanA=[], spanB=[];
+      const n = high.length;
+      const hh = (arr,i,p)=> Math.max.apply(null, arr.slice(i-p+1, i+1));
+      const ll = (arr,i,p)=> Math.min.apply(null, arr.slice(i-p+1, i+1));
+      for(let i=0;i<n;i++){
+        if(i>=conversionPeriod-1){ conv.push((hh(high,i,conversionPeriod)+ll(low,i,conversionPeriod))/2); } else conv.push(null);
+        if(i>=basePeriod-1){ base.push((hh(high,i,basePeriod)+ll(low,i,basePeriod))/2); } else base.push(null);
+        const sa = (conv[i]!=null && base[i]!=null)? (conv[i]+base[i])/2 : null; spanA.push(sa);
+        if(i>=spanPeriod-1){ spanB.push((hh(high,i,spanPeriod)+ll(low,i,spanPeriod))/2); } else spanB.push(null);
+      }
+      // Displacement is visual; for calculations we'll just return arrays (no shift)
+      const out=[]; for(let i=0;i<n;i++){ if(spanA[i]==null||spanB[i]==null) continue; out.push({conversion:conv[i], base:base[i], spanA:spanA[i], spanB:spanB[i]}); }
+      return out;
+    }};
+
+    TI.StochasticRSI = { calculate: ({values, rsiPeriod=14, stochasticPeriod=14, kPeriod=3, dPeriod=3}) => {
+      const rsi = TI.RSI.calculate({values, period:rsiPeriod});
+      // RSI array shorter; apply stochastic to it
+      const st=[]; for(let i=stochasticPeriod-1;i<rsi.length;i++){
+        const window = rsi.slice(i-stochasticPeriod+1, i+1);
+        const min = Math.min.apply(null, window); const max = Math.max.apply(null, window);
+        const v = (rsi[i]-min)/((max-min)||1) * 100; st.push(v);
+      }
+      const smaN = (arr,p)=>{ const o=[]; for(let i=p-1;i<arr.length;i++){ o.push(mean(arr.slice(i-p+1,i+1))); } return o; };
+      const k = smaN(st, kPeriod); const d = smaN(k, dPeriod);
+      const out=[]; const start = k.length - d.length; for(let i=0;i<d.length;i++){ out.push({k:k[i+start], d:d[i]}); }
+      return out;
+    }};
+  }
+
+  // expose a consistent handle
+  window.__TI__ = TI;
+})();
+// --------------------------------------------------------
+</script>
+
+<script>
+const BN_BASE = "https://api.binance.com"; // يتطلب HTTPS
+let ALL_SYMBOLS = [];
+let CURRENT = { symbol: null, interval: '15m', limit: 500 };
+
+// UI refs
+const symbolsEl = document.getElementById('symbols');
+const searchEl = document.getElementById('search');
+const intervalEl = document.getElementById('interval');
+const limitEl = document.getElementById('limit');
+const zigzagPctEl = document.getElementById('zigzagPct');
+const rsiLenEl = document.getElementById('rsiLen');
+const maFastEl = document.getElementById('maFast');
+const maTypeEl = document.getElementById('maType');
+const confirmBarsEl = document.getElementById('confirmBars');
+const soundEl = document.getElementById('sound');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const runTestsBtn = document.getElementById('runTests');
+const libStatus = document.getElementById('libStatus');
+const testResults = document.getElementById('testResults');
+
+const pickedSymbol = document.getElementById('pickedSymbol');
+const pickedInterval = document.getElementById('pickedInterval');
+const explain = document.getElementById('explain');
+const srInfo = document.getElementById('srInfo');
+
+// Metric boxes
+const trendBox = document.getElementById('trendBox');
+const confidenceBox = document.getElementById('confidenceBox');
+const volatilityBox = document.getElementById('volatilityBox');
+const adxBox = document.getElementById('adxBox');
+const diagText = document.getElementById('diagText');
+
+// Charts
+let priceChart, priceSeries, emaFastSeries, emaSlowSeries, bbUpper, bbLower, zigzagSeries, ichiSpanA, ichiSpanB;
+let rsiChart, rsiSeries, stochKSeries, stochDSeries;
+let macdChart, macdSeries, macdSignalSeries, macdHistSeries;
+
+function safeNum(x){ return (Number.isFinite(x)? x : NaN); }
+function pct(a,b){ return b===0?0:((a-b)/b)*100; }
+
+function setMetric(el, value, cls){
+  el.classList.remove('good','bad','warn');
+  if(cls) el.classList.add(cls);
+  el.querySelector('.v').textContent = value;
+}
+
+function beep(){ if(soundEl.value==='on'){ document.getElementById('ding').play().catch(()=>{}); } }
+
+async function fetchSymbols(){
+  try{
+    const r = await fetch(`${BN_BASE}/api/v3/exchangeInfo`);
+    const j = await r.json();
+    ALL_SYMBOLS = j.symbols
+      .filter(s=> s.status==='TRADING' && /USDT$/.test(s.symbol)) // أزواج عقود شعبية مقابل USDT
+      .map(s=>({symbol:s.symbol, base:s.baseAsset, quote:s.quoteAsset}));
+    renderSymbols();
+  }catch(e){
+    symbolsEl.innerHTML = `<div class="symbol-item">تعذّر تحميل الأزواج. تأكد من تشغيل الملف عبر خادم آمن (HTTPS).</div>`;
+    console.error(e);
+  }
+}
+
+function renderSymbols(){
+  const q = (searchEl.value||'').toUpperCase();
+  const rows = ALL_SYMBOLS
+    .filter(s=> s.symbol.includes(q))
+    .map(s=> `<div class="symbol-item" data-sym="${s.symbol}"><div>${s.symbol}</div><div class="tag">${s.base}</div></div>`)
+    .join('');
+  symbolsEl.innerHTML = rows || '<div class="symbol-item">لا نتائج</div>';
+  [...symbolsEl.querySelectorAll('.symbol-item')].forEach(div=>{
+    div.onclick = ()=>{
+      CURRENT.symbol = div.dataset.sym;
+      pickedSymbol.textContent = CURRENT.symbol;
+      run();
+    }
+  })
+}
+
+async function fetchKlines(symbol, interval, limit){
+  const url = `${BN_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('Binance klines error');
+  const k = await r.json();
+  return k.map(o=>({
+    time: Math.floor(o[0]/1000),
+    open: +o[1], high: +o[2], low: +o[3], close:+o[4], volume:+o[5]
+  }));
+}
+
+function ensureCharts(){
+  if(priceChart) return; // already
+  priceChart = LightweightCharts.createChart(document.getElementById('priceChart'),{
+    layout:{background:{type:'solid',color:'#0f1426'}, textColor:'#cfe2ff'},
+    grid:{vertLines:{color:'#1d2744'}, horzLines:{color:'#1d2744'}},
+    rightPriceScale:{borderColor:'#24335a'},
+    timeScale:{borderColor:'#24335a'},
+    crosshair:{mode:0}
+  });
+  priceSeries = priceChart.addCandlestickSeries();
+  emaFastSeries = priceChart.addLineSeries({color:'#4cc9f0', lineWidth:2});
+  emaSlowSeries = priceChart.addLineSeries({color:'#a6e1fa', lineWidth:1});
+  bbUpper = priceChart.addLineSeries({color:'#ffbf69'});
+  bbLower = priceChart.addLineSeries({color:'#ffbf69'});
+  zigzagSeries = priceChart.addLineSeries({color:'#00d48f', lineWidth:2});
+  ichiSpanA = priceChart.addAreaSeries({topColor:'rgba(0,212,143,0.25)', bottomColor:'rgba(0,212,143,0.0)', lineColor:'rgba(0,212,143,0.7)', lineWidth:1});
+  ichiSpanB = priceChart.addAreaSeries({topColor:'rgba(255,84,112,0.25)', bottomColor:'rgba(255,84,112,0.0)', lineColor:'rgba(255,84,112,0.7)', lineWidth:1});
+
+  rsiChart = LightweightCharts.createChart(document.getElementById('rsiChart'),{
+    layout:{background:{type:'solid',color:'#0f1426'}, textColor:'#cfe2ff'},
+    grid:{vertLines:{color:'#1d2744'}, horzLines:{color:'#1d2744'}},
+    rightPriceScale:{borderColor:'#24335a'}, timeScale:{borderColor:'#24335a'}
+  });
+  rsiSeries = rsiChart.addLineSeries({color:'#00d48f'});
+  stochKSeries = rsiChart.addLineSeries({color:'#4cc9f0'});
+  stochDSeries = rsiChart.addLineSeries({color:'#a6e1fa'});
+
+  macdChart = LightweightCharts.createChart(document.getElementById('macdChart'),{
+    layout:{background:{type:'solid',color:'#0f1426'}, textColor:'#cfe2ff'},
+    grid:{vertLines:{color:'#1d2744'}, horzLines:{color:'#1d2744'}},
+    rightPriceScale:{borderColor:'#24335a'}, timeScale:{borderColor:'#24335a'}
+  });
+  macdSeries = macdChart.addLineSeries({color:'#4cc9f0'});
+  macdSignalSeries = macdChart.addLineSeries({color:'#a6e1fa'});
+  macdHistSeries = macdChart.addHistogramSeries({color:'#ffbf69'});
+}
+
+// Helpers: MA/EMA using TI (robust)
+function ema(values, period){ return window.__TI__.EMA.calculate({values, period}); }
+function sma(values, period){ return window.__TI__.SMA.calculate({values, period}); }
+
+// ZigZag (percentage threshold) on closes
+function zigzag(points, pctThreshold){
+  if(points.length<3) return [];
+  const out=[]; let lastExtreme = points[0]; let lastDir = 0; // 1 up, -1 down
+  out.push(lastExtreme);
+  for(let i=1;i<points.length;i++){
+    const p = points[i];
+    const change = pct(p.close, lastExtreme.close);
+    if(lastDir>=0 && change <= -pctThreshold){ // turned down
+      lastDir = -1; lastExtreme = p; out.push(p);
+    }else if(lastDir<=0 && change >= pctThreshold){ // turned up
+      lastDir = +1; lastExtreme = p; out.push(p);
+    }else{
+      // extend trend extreme
+      if((lastDir>=0 && p.close>lastExtreme.close) || (lastDir<=0 && p.close<lastExtreme.close)){
+        lastExtreme = p; if(out.length){ out[out.length-1]=p; } else { out.push(p); }
+      }
+    }
+  }
+  return out;
+}
+
+function nearestSR(zz){
+  const highs = zz.filter((_,i)=> i%2===0).map(p=>p.close);
+  const lows = zz.filter((_,i)=> i%2===1).map(p=>p.close);
+  const res = highs.slice(-3);
+  const sup = lows.slice(-3);
+  return { resistances: res, supports: sup };
+}
+
+function ichimokuSeries(ohlc){
+  const ich = window.__TI__.IchimokuCloud.calculate({
+    high: ohlc.map(x=>x.high),
+    low:  ohlc.map(x=>x.low),
+    conversionPeriod:9, basePeriod:26, spanPeriod:52, displacement:26
+  });
+  return ich; // {conversion, base, spanA, spanB}
+}
+
+function bollinger(closes, period=20, stdDev=2){
+  return window.__TI__.BollingerBands.calculate({period, stdDev, values: closes});
+}
+
+function macdCalc(closes){
+  return window.__TI__.MACD.calculate({values: closes, fastPeriod:12, slowPeriod:26, signalPeriod:9, SimpleMAOscillator:false, SimpleMASignal:false});
+}
+
+function adxCalc(high, low, close){
+  return window.__TI__.ADX.calculate({high, low, close, period:14});
+}
+
+function stochRsiCalc(closes){
+  return window.__TI__.StochasticRSI.calculate({values: closes, rsiPeriod:14, stochasticPeriod:14, kPeriod:3, dPeriod:3});
+}
+
+function scoreSignal(ctx){
+  let points=0, total=0; const reasons=[];
+  const add=(cond, why)=>{ total++; if(cond){ points++; reasons.push('✔ ' + why); } else { reasons.push('✖ ' + why); } };
+
+  add(ctx.close>ctx.emaSlow, `السعر فوق المتوسط البطيء`);
+  add(ctx.emaFast>ctx.emaSlow, `EMA(${ctx.maFast}) فوق EMA(200)`);
+  add(ctx.rsi>50 && ctx.rsi<70, `RSI>50(<70)`);
+  add(ctx.macdHist>0, `MACD Histogram موجب`);
+  add(ctx.stochK>ctx.stochD && ctx.stochK<80, `StochRSI تقاطع صاعد (<80)`);
+  add(ctx.adx>20 && ctx.diPlus>ctx.diMinus, `ADX>20 و +DI>-DI`);
+  add(ctx.close>ctx.bbMid, `الإغلاق فوق منتصف بولينجر`);
+  add(ctx.close>Math.max(ctx.ichSpanA, ctx.ichSpanB), `السعر فوق سحابة إيشيموكو`);
+
+  const pct = Math.round((points/total)*100);
+  const bias = points>=Math.ceil(total/2) ? 'صاعد' : 'هابط';
+  return {confidence:pct, bias, reasons};
+}
+
+async function run(){
+  try{
+    if(!CURRENT.symbol) return;
+    analyzeBtn.disabled = true;
+    CURRENT.interval = intervalEl.value; CURRENT.limit = +limitEl.value;
+    pickedInterval.textContent = CURRENT.interval;
+    ensureCharts();
+
+    const data = await fetchKlines(CURRENT.symbol, CURRENT.interval, CURRENT.limit);
+    if(data.length<60) throw new Error('بيانات غير كافية');
+
+    // set candles
+    priceSeries.setData(data.map(d=>({time:d.time, open:d.open, high:d.high, low:d.low, close:d.close})));
+
+    const closes = data.map(d=>d.close);
+    const highs = data.map(d=>d.high);
+    const lows  = data.map(d=>d.low);
+
+    // Moving averages
+    const fastN = Math.max(2, +maFastEl.value|0);
+    const slowN = 200; // ثابت للمرجعية
+    const fastMA = (maTypeEl.value==='EMA'? ema(closes, fastN) : sma(closes, fastN));
+    const slowEMA = ema(closes, slowN);
+
+    emaFastSeries.setData(data.slice(-fastMA.length).map((d,i)=>({time:d.time, value:fastMA[i]})));
+    emaSlowSeries.setData(data.slice(-slowEMA.length).map((d,i)=>({time:d.time, value:slowEMA[i]})));
+
+    // Bollinger
+    const bb = bollinger(closes);
+    const bbTimes = data.slice(-(bb.length)).map(d=>d.time);
+    const bbUpperData = bb.map((b,i)=>({time:bbTimes[i], value:b.upper}));
+    const bbLowerData = bb.map((b,i)=>({time:bbTimes[i], value:b.lower}));
+    const bbMid = bb.map((b,i)=>({time:bbTimes[i], value:b.middle}));
+    bbUpper.setData(bbUpperData);
+    bbLower.setData(bbLowerData);
+
+    // RSI
+    const rsi = window.__TI__.RSI.calculate({values: closes, period: +rsiLenEl.value});
+    rsiSeries.setData(data.slice(-rsi.length).map((d,i)=>({time:d.time, value:rsi[i]})));
+
+    // Stoch RSI
+    const stoch = stochRsiCalc(closes);
+    const stTimes = data.slice(-stoch.length).map(d=>d.time);
+    const stK = stoch.map(s=>s.k);
+    const stD = stoch.map(s=>s.d);
+    stochKSeries.setData(stTimes.map((t,i)=>({time:t, value:stK[i]})));
+    stochDSeries.setData(stTimes.map((t,i)=>({time:t, value:stD[i]})));
+
+    // MACD
+    const macd = macdCalc(closes);
+    const macdTimes = data.slice(-macd.length).map(d=>d.time);
+    const macdLine = macd.map(m=>m.MACD);
+    const macdSignal = macd.map(m=>m.signal);
+    const macdHist = macd.map(m=>m.histogram);
+    macdSeries.setData(macdTimes.map((t,i)=>({time:t, value:macdLine[i]})));
+    macdSignalSeries.setData(macdTimes.map((t,i)=>({time:t, value:macdSignal[i]})));
+    macdHistSeries.setData(macdTimes.map((t,i)=>({time:t, value:macdHist[i]})));
+
+    // ADX
+    const adx = adxCalc(highs, lows, closes);
+    const adxTimes = data.slice(-adx.length).map(d=>d.time);
+    const adxVals = adx.map(x=>x.adx);
+    const diPlus  = adx.map(x=>x.pdi);
+    const diMinus = adx.map(x=>x.mdi);
+
+    // Ichimoku
+    const ich = ichimokuSeries(data);
+    const ichTimes = data.slice(-(ich.length)).map(d=>d.time);
+    const spanA = ich.map(x=>x.spanA);
+    const spanB = ich.map(x=>x.spanB);
+    ichiSpanA.setData(ichTimes.map((t,i)=>({time:t, value:spanA[i]})));
+    ichiSpanB.setData(ichTimes.map((t,i)=>({time:t, value:spanB[i]})));
+
+    // ZigZag & SR
+    const pctTh = Math.max(0.1, +zigzagPctEl.value);
+    const zz = zigzag(data, pctTh);
+    zigzagSeries.setData(zz.map(p=>({time:p.time, value:p.close})));
+    const sr = nearestSR(zz);
+    const lastClose = closes[closes.length-1];
+    const nearRes = sr.resistances.length? sr.resistances[sr.resistances.length-1] : null;
+    const nearSup = sr.supports.length? sr.supports[sr.supports.length-1] : null;
+    srInfo.textContent = `مقاومة≈ ${nearRes?nearRes.toFixed(4):'—'} | دعم≈ ${nearSup?nearSup.toFixed(4):'—'}`;
+
+    // Compose context for scoring
+    const ctx={
+      close:lastClose,
+      emaFast: fastMA[fastMA.length-1],
+      emaSlow: slowEMA[slowEMA.length-1],
+      macdHist: macdHist[macdHist.length-1],
+      rsi: rsi[rsi.length-1],
+      stochK: stK[stK.length-1],
+      stochD: stD[stD.length-1],
+      adx: adxVals[adxVals.length-1],
+      diPlus: diPlus[diPlus.length-1],
+      diMinus: diMinus[diMinus.length-1],
+      bbMid: bbMid[bbMid.length-1]?.value ?? lastClose, // fallback
+      ichSpanA: spanA[spanA.length-1],
+      ichSpanB: spanB[spanB.length-1],
+      maFast: fastN
+    };
+
+    const result = scoreSignal(ctx);
+    const conf = result.confidence;
+
+    // Update board
+    setMetric(trendBox, result.bias, result.bias==='صاعد'?'good':'bad');
+    setMetric(confidenceBox, conf + '%', conf>=70? 'good' : conf>=50? 'warn':'bad');
+    const lastBb = bb[bb.length-1];
+    const bPercent = lastBb? Math.round(((lastClose - lastBb.lower)/(lastBb.upper-lastBb.lower))*100) : 0;
+    setMetric(volatilityBox, (isFinite(bPercent)? bPercent:0) + '%', bPercent>=80||bPercent<=20? 'warn':'' );
+    setMetric(adxBox, Math.round(ctx.adx), ctx.adx>=25?'good':'');
+
+    // Explanation
+    const confirm = +confirmBarsEl.value;
+    let confNote = confirm>0? `تم تفعيل تأكيد الإشارة بعد ${confirm} شمعة.`: 'بدون تأكيد إضافي.';
+    const why = result.reasons.join('\n');
+    const txt = `الزوج: ${CURRENT.symbol}\nالإطار الزمني: ${CURRENT.interval}\n\nالاتجاه العام: ${result.bias}\nدرجة الثقة: ${conf}%\n\nتحليل مختصر:\n${why}\n\nقرب السعر من حدود بولنجر: ${bPercent}%\nأقرب دعم/مقاومة: ${srInfo.textContent}\n\nملاحظة: ${confNote}\nتنبيه: الأداة تعليمية وليست توصية تداول.`;
+    explain.textContent = txt;
+
+    // Optional alert
+    if((result.bias==='صاعد' && conf>=70) || (result.bias==='هابط' && conf>=70)) beep();
+
+  }catch(e){
+    console.error(e);
+    explain.textContent = '⚠️ حدث خطأ أثناء التحليل. غالبًا السبب تشغيل الملف مباشرة من القرص أو حظر الشبكة. رجاءً استخدم خادم محلي (مثل Live Server / Netlify / Vercel) أو أي بيئة HTTPS.';
+  }finally{
+    analyzeBtn.disabled = false;
+  }
+}
+
+// ---------- Self Tests (ALWAYS present) ----------
+function approx(a,b,eps=1e-6){ return Math.abs(a-b) <= eps; }
+function runUnitTests(){
+  const TI = window.__TI__;
+  let out = [];
+  try{
+    // SMA test
+    const sma = TI.SMA.calculate({values:[1,2,3,4,5], period:2});
+    out.push(`SMA len=${sma.length} last=${sma[sma.length-1]}`);
+    console.assert(approx(sma[sma.length-1], 4.5), 'SMA last should be 4.5');
+
+    // EMA test (period 3 on [1..5] should end at 4)
+    const ema = TI.EMA.calculate({values:[1,2,3,4,5], period:3});
+    out.push(`EMA len=${ema.length} last=${ema[ema.length-1].toFixed(4)}`);
+    console.assert(Math.abs(ema[ema.length-1]-4) < 1e-6, 'EMA last should be 4');
+
+    // RSI edge (strict uptrend 1..15, period 14 => near 100)
+    const rsi = TI.RSI.calculate({values:[...Array(15)].map((_,i)=>i+1), period:14});
+    out.push(`RSI len=${rsi.length} last=${rsi[rsi.length-1]}`);
+    console.assert(rsi[rsi.length-1] >= 99.9, 'RSI should be ~100 in straight uptrend');
+
+    // Bollinger on constant series -> all = 1
+    const bb = TI.BollingerBands.calculate({values:Array(20).fill(1), period:20, stdDev:2});
+    out.push(`BB last m=${bb.at(-1).middle} u=${bb.at(-1).upper} l=${bb.at(-1).lower}`);
+    console.assert(approx(bb.at(-1).middle,1) && approx(bb.at(-1).upper,1) && approx(bb.at(-1).lower,1), 'BB on constants = 1');
+
+    // MACD basic shape
+    const macd = TI.MACD.calculate({values:[...Array(60)].map((_,i)=>i+1)});
+    out.push(`MACD len=${macd.length} lastHist=${macd.at(-1).histogram?.toFixed(4)}`);
+    console.assert(Number.isFinite(macd.at(-1).histogram), 'MACD histogram finite');
+
+    // ADX simple monotone (should be finite)
+    const highs=[...Array(60)].map((_,i)=>i+2);
+    const lows =[...Array(60)].map((_,i)=>i+0.5);
+    const close=[...Array(60)].map((_,i)=>i+1);
+    const adx = TI.ADX.calculate({high:highs, low:lows, close});
+    out.push(`ADX len=${adx.length} last=${adx.at(-1)?.adx?.toFixed(4)}`);
+    console.assert(Number.isFinite(adx.at(-1).adx), 'ADX finite');
+
+    // Ichimoku length non-zero
+    const ich = TI.IchimokuCloud.calculate({high:highs, low:lows});
+    out.push(`Ichimoku len=${ich.length} spanA=${ich.at(-1)?.spanA?.toFixed(4)}`);
+    console.assert(ich.length>0, 'Ichimoku length > 0');
+
+    // StochRSI range
+    const st = TI.StochasticRSI.calculate({values:[...Array(200)].map((_,i)=>Math.sin(i/10)+i/50+50)});
+    out.push(`StochRSI len=${st.length} k=${st.at(-1)?.k?.toFixed(2)} d=${st.at(-1)?.d?.toFixed(2)}`);
+    console.assert(Number.isFinite(st.at(-1).k) && Number.isFinite(st.at(-1).d), 'StochRSI finite');
+
+    testResults.textContent = '✅ Passed tests:\n' + out.join('\n');
+    diagText.textContent = 'OK';
+  }catch(err){
+    console.error(err);
+    testResults.textContent = '❌ Test failure: ' + err.message;
+    diagText.textContent = 'FAIL';
+  }
+}
+
+// Events
+intervalEl.onchange = ()=> CURRENT.interval = intervalEl.value;
+limitEl.onchange = ()=> CURRENT.limit = +limitEl.value;
+searchEl.oninput = renderSymbols;
+document.getElementById('refreshSymbols').onclick = fetchSymbols;
+analyzeBtn.onclick = run;
+runTestsBtn.onclick = runUnitTests;
+
+// Initial
+fetchSymbols();
+// library detection badge
+libStatus.textContent = 'Lib: ' + (window.technicalindicators? 'CDN' : 'Fallback');
+if(!window.technicalindicators){ libStatus.style.borderColor = '#ffbf69'; libStatus.title = 'يتم استخدام دوال احتياطية مدمجة.'; }
+
+</script>
+</body>
+</html>
